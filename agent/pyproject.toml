@@ -1,9 +1,8 @@
 [project]
-name = "rag"
+name = "flagship"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "requests",
-    "dotenv>=0.9.9",
     "openai",
+    "dotenv",
 ]
