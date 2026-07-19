@@ -10,4 +10,8 @@ def add(a: int, b: int):
 
 
 if __name__ == "__main__":
-  mcp.run()
+  mcp.run(transport="http", host="0.0.0.0", port=8000)
+
+
+# docker build . -t flagship-sandbox
+# docker run -p 8000:8000 -t flagship-sandbox
