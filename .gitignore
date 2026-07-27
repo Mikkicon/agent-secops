@@ -2,3 +2,6 @@
 .vscode
 agent.egg-info
 .venv
+__pycache__
+data
+unsafe-sandbox-data
