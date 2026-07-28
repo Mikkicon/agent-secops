@@ -1,13 +1,17 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any
 from dotenv import load_dotenv
-from openai import OpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCallUnion
 from fastmcp.client import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
 from mcp.types import Tool
+# from openai import OpenAI
+from langfuse.openai import OpenAI
+from pydantic import BaseModel # imported lazily so the lib loads without the SDK
+
 
 load_dotenv()
 
@@ -15,7 +19,6 @@ MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-openai = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENAI_API_KEY)
 
 mcp_client = MCPClient(
     {
@@ -31,20 +34,28 @@ class MCPRBACConfig:
   allowed_commands = ["cat"] # no curl
   allowed_tools = [] 
 
+class AgentCallConfig(BaseModel):
+  system_prompt: str = ""
+
 class Agent:
   tools = []
+  _client: OpenAI = None
   config: MCPRBACConfig = None
+  call_config: AgentCallConfig = None
   
-  def __init__(self, tools: list[Tool], config):
+  def __init__(self, tools: list[Tool], config = MCPRBACConfig(), call_config = AgentCallConfig()):
     self.config = config
     _tools = [t.name for t in tools if t.name in self.config.allowed_tools]
     # TODO tools description hash approved/to-approve
     print("\n-".join([t.name for t in _tools]))
     self.tools = [{"type": "function", "function":  {"name": t.name, "description": t.description, "parameters": t.inputSchema}} for t in _tools]
+    self._client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENAI_API_KEY)
+    self.call_config = call_config
+
   
-  
-  async def ainvoke(self, messages) -> ChatCompletion:
+  async def ainvoke(self, _messages) -> ChatCompletion:
     unfinished = True
+    messages = [{"role": "system", "content": self.call_config.system_prompt}, *_messages]
     while unfinished:
       response = await self.__create(messages)
       print(response)
@@ -56,7 +67,7 @@ class Agent:
 
 
   async def astream(self, messages):
-    response = openai.chat.completions.create(
+    response = self._client.chat.completions.create(
         model=MODEL, messages=messages, stream=True, tools=self.tools
     )
     for event in response:
@@ -72,7 +83,7 @@ class Agent:
 
 
   async def __create(self, messages) -> ChatCompletion:
-    return openai.chat.completions.create(model=MODEL, messages=messages, n=1, tools=self.tools)
+    return self._client.chat.completions.create(model=MODEL, messages=messages, n=1, tools=self.tools)
 
 
   def __should_break(self, response: ChatCompletion):
@@ -102,18 +113,32 @@ class Agent:
       return 
 
 
-async def run(mcp_client: MCPClient):
+def prompt_path():
+  CWD = Path(__file__).resolve().parent
+  return os.path.join(CWD, "prompts", "sys-linkedin-inbox-v1.md")
+
+
+async def get_agent():
+  system_prompt = ""
+  with open(prompt_path(), "r") as f:
+    system_prompt = f.read()
+  async with mcp_client:
+    tools = await Agent.list_tools(mcp_client)
+    call_config = AgentCallConfig(system_prompt=system_prompt)
+    return Agent(tools=tools, call_config=call_config)
+
+
+
+async def run():
     # out = await mcp_client.call_tool("local_read_file", {"path": "/data/messages.csv"})
+    agent = await get_agent()
     # print("TOOL CALL - ", out.content[0].text[:200])
-    agent = Agent(tools=await Agent.list_tools(mcp_client))
-    response = await agent.ainvoke([{"role": "user", "content": "tell me what is in /data/messages.csv"}])
+    # response = await agent.ainvoke(get_messages())
     print("\n\nFINAL RESPONSE\n\n")
-    print(response)
+    # print(response)
 
 async def main():
-    async with mcp_client:
-        await run(mcp_client)
-
+  await run()
 
 if __name__ == "__main__":
     asyncio.run(main())

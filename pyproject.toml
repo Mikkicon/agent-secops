@@ -6,4 +6,5 @@ dependencies = [
     "fastmcp",
     "openai",
     "dotenv",
+    "langfuse>=4.14.1",
 ]
