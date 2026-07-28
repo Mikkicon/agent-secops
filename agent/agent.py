@@ -10,7 +10,9 @@ from fastmcp.client.transports import StreamableHttpTransport
 from mcp.types import Tool
 # from openai import OpenAI
 from langfuse.openai import OpenAI
-from pydantic import BaseModel # imported lazily so the lib loads without the SDK
+from pydantic import BaseModel
+
+from agent.security import MCPRBACConfig, domain_guard, tool_guard # imported lazily so the lib loads without the SDK
 
 
 load_dotenv()
@@ -29,10 +31,6 @@ mcp_client = MCPClient(
     }
 )
 
-class MCPRBACConfig:
-  allowed_domains = ["google.com"] # no spoof.mcp
-  allowed_commands = ["cat"] # no curl
-  allowed_tools = [] 
 
 class AgentCallConfig(BaseModel):
   system_prompt: str = ""
@@ -40,12 +38,12 @@ class AgentCallConfig(BaseModel):
 class Agent:
   tools = []
   _client: OpenAI = None
-  config: MCPRBACConfig = None
+  sec_config: MCPRBACConfig = None
   call_config: AgentCallConfig = None
   
   def __init__(self, tools: list[Tool], config = MCPRBACConfig(), call_config = AgentCallConfig()):
-    self.config = config
-    _tools = [t.name for t in tools if t.name in self.config.allowed_tools]
+    self.sec_config = config
+    _tools = [t.name for t in tools if t.name in self.sec_config.allowed_tools]
     # TODO tools description hash approved/to-approve
     print("\n-".join([t.name for t in _tools]))
     self.tools = [{"type": "function", "function":  {"name": t.name, "description": t.description, "parameters": t.inputSchema}} for t in _tools]
@@ -100,16 +98,20 @@ class Agent:
   
   
   async def __call_tool(self, tool_call: ChatCompletionMessageToolCallUnion):
+    if not tool_guard(tool_call, self.sec_config): 
+      return f"Tool {tool_call.function.name} is forbidden"
+    
+    if not domain_guard(tool_call, self.sec_config): 
+      return f"Domain {tool_call.function.arguments} is forbidden"
+    
     args = json.loads(tool_call.function.arguments)
-    # TODO add guard for each mcp server with each allowed tools - look at claude.json allowedTools
-    # TODO specific guard for web tool
     tool_out = await mcp_client.call_tool(tool_call.function.name, args)
     print("TOOL CALL - ", tool_out)
 
 
   async def __bash(self, command: str):
     # TODO 
-    if command not in self.config.allowed_commands:
+    if command not in self.sec_config.allowed_commands:
       return 
 
 
