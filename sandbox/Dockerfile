@@ -20,6 +20,9 @@ EXPOSE 8000
 # create data volume if no -v
 VOLUME /data
 
+COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
+RUN update-ca-certificates
+
 ENTRYPOINT ["uv", "run"]
 CMD ["python", "-m", "tools.main"]
 
