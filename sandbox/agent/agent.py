@@ -25,7 +25,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 mcp_client = MCPClient(
     {
         "mcpServers": {
-            "local": {"url": "http://127.0.0.1:8000/mcp"},
+            "local": {"url": "http://tools:8000/mcp"},
             "tavily": {"url": f"https://mcp.tavily.com/mcp/?tavilyApiKey={TAVILY_API_KEY}"},
         }
     }
