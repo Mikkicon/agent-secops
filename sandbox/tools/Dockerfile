@@ -15,13 +15,16 @@ COPY . .
 # Install the code
 RUN uv sync --frozen --no-dev
 
+# copy and trust mitmproxy's CA - TLS handshake to mitmproxy cert-verify
+COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
+# httpx/openai ignore the OS store
+RUN update-ca-certificates && \
+    cat /usr/local/share/ca-certificates/mitm.crt >> "$(uv run python -c 'import certifi; print(certifi.where())')"
+
 EXPOSE 8000
 
 # create data volume if no -v
 VOLUME /data
-
-# COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
-# RUN update-ca-certificates
 
 ENTRYPOINT ["uv", "run"]
 CMD ["python", "-m", "main"]

@@ -10,13 +10,6 @@ COPY pyproject.toml uv.lock ./
 # Only dependencies without the code - cache layer
 RUN uv sync --frozen --no-install-project --no-dev
 
-# copy and trust mitmproxy's CA - TLS handshake to mitmproxy cert-verify
-COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
-# httpx/openai ignore the OS store
-RUN update-ca-certificates && \
-    cat /usr/local/share/ca-certificates/mitm.crt >> "$(uv run python -c 'import certifi; print(certifi.where())')"
-
-
 COPY . .
 
 # Install the code
@@ -28,6 +21,6 @@ EXPOSE 8080
 VOLUME /data
 
 ENTRYPOINT ["uv", "run"]
-CMD ["python", "-m", "main"]
+CMD ["mitmdump", "-s", "interceptor.py", "--listen-host", "0.0.0.0", "--listen-port", "8080"]
 
 # cd sandbox/agent && docker run -p 8080:8080 -v "$(pwd)/unsafe-sandbox-data:/data" -t sandbox-agent
