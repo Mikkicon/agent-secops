@@ -12,7 +12,7 @@ from mcp.types import Tool
 from langfuse.openai import OpenAI
 from pydantic import BaseModel
 
-from agent.security import MCPRBACConfig, domain_guard, tool_guard # imported lazily so the lib loads without the SDK
+from sandbox.agent.security import MCPRBACConfig, domain_guard, tool_guard # imported lazily so the lib loads without the SDK
 
 
 load_dotenv()

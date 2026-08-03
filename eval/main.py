@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 
-from agent.agent import get_agent
+from sandbox.agent.agent import get_agent
 from eval.scorers import LLMJudge
 
 def golden_path():

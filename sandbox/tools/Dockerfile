@@ -20,10 +20,10 @@ EXPOSE 8000
 # create data volume if no -v
 VOLUME /data
 
-COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
-RUN update-ca-certificates
+# COPY mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitm.crt
+# RUN update-ca-certificates
 
 ENTRYPOINT ["uv", "run"]
-CMD ["python", "-m", "tools.main"]
+CMD ["python", "-m", "main"]
 
-# cd sandbox && docker run -p 8000:8000 -v "$(pwd)/unsafe-sandbox-data:/data" -t flagship-sandbox
+# cd sandbox/tools && docker run -p 8000:8000 -v "$(pwd)/unsafe-sandbox-data:/data" -t sandbox-tools
