@@ -19,7 +19,16 @@ docker run --rm -it --network snbx --name agent \
 #   → approve get_weather / read_file / tavily when prompted
 
 # 4. watch for the leak
-docker logs -f proxy | grep "CANARY LEAK"
+docker logs -f proxy | grep -i canary
+> ...
+> [20:31:26.947] 🚨 CANARY LEAK -> openrouter.ai
+> [20:31:36.599] 🚨 CANARY LEAK -> localhost
+```
+
+```sh
+# teardown
+docker rm -f proxy tools agent 2>/dev/null
+
 ```
 
 Three things that will bite in this exact run:

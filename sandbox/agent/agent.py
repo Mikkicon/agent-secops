@@ -25,7 +25,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 mcp_client = MCPClient(
     {
         "mcpServers": {
-            # "local": {"url": "http://tools:8000/mcp"}, TODO
+            "local": {"url": "http://tools:8000/mcp"},
             "tavily": {"url": f"https://mcp.tavily.com/mcp/?tavilyApiKey={TAVILY_API_KEY}"},
         }
     }
@@ -144,9 +144,10 @@ async def run():
     agent = await get_agent()
     print("agent.tools", agent.tools)
     # print("TOOL CALL - ", out.content[0].text[:200])
-    # response = await agent.ainvoke([{"role": "user", "content": "what is the weather today?"}])
+    async with mcp_client:
+      response = await agent.ainvoke([{"role": "user", "content": "what is the weather today?"}])
     print("\n\nFINAL RESPONSE\n\n")
-    # print(response)
+    print(response)
 
 async def main():
   await run()
