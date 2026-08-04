@@ -1,34 +1,81 @@
 import hashlib
+import json
+import os
+from pathlib import Path
+from typing import Any
 from openai.types.chat import ChatCompletionMessageToolCallUnion
+from pydantic import BaseModel
+from mcp.types import Tool
 
+CWD = Path(__file__).resolve().parent
 
 # 1. Developers can configure specific rules to block the agent from accessing critical system files or running forbidden commands like curl or rm.
 # 2. Do not let users connect to arbitrary servers. Vet and approve servers before they can be used.
 # 3. Hash tool descriptions at approval time; alert on change. 
-class MCPRBACConfig:
-  allowed_domains = ["google.com"] # no spoof.mcp
-  allowed_commands = ["cat"] # no curl
-  allowed_tools: dict[str, dict] = {"3645...1a37": {}}
+class MCPRBACConfig(BaseModel):
+  allowed_domains: list[str] = ["google.com"] # no spoof.mcp
+  allowed_commands: list[str] = ["cat"] # no curl
+  allowed_tools: dict[str, str] = {}
   web_tools: set[str] = set(["tavily_tavily_search"])
+  
+  @staticmethod
+  def load_config():
+    print("Loading config...")
+    allowed_tools: dict[str, str] = {}
+    try:
+      with open(os.path.join(CWD, "config.json"), "r") as f:
+        cfg = json.load(f)
+        allowed_tools = cfg.get("allow", {})
+        print("Loaded Config:", allowed_tools.keys())
+        print("load_config - allowed_tools", allowed_tools.keys())
+    except Exception as e:
+      print("Exception", e)
+    return MCPRBACConfig(allowed_tools=allowed_tools)
 
 
+  def update_allowed_tools(self, tools: list[Tool]):
+    allowed_tools = {**self.allowed_tools}
+    stale_hash_tools = [t for t in tools if t.name in allowed_tools and hash_tool(t.name, t.description, t.inputSchema) != allowed_tools[t.name]]
+    unverified_tools = [t for t in tools if t.name not in allowed_tools]
+    # APPROVE + HASH
+    for t in stale_hash_tools:
+      isapproved = input(f"\n> NAME:{t.name} \n> DESCRIPTION:{t.description}\n> SCHEMA:{json.dumps(t.inputSchema, indent=2)}\n> [TOOL CHANGED SINCE APPROVED] APPROVE {t.name}? Y/N...")
+      if isapproved.lower() == "y":
+        hash = hash_tool(t.name, t.description, t.inputSchema)
+        allowed_tools[t.name] = hash
+        print(f"Approved: {t.name} - {hash}")
+    for t in unverified_tools:
+      isapproved = input(f"\n> NAME:{t.name} \n> DESCRIPTION:{t.description}\n> SCHEMA:{json.dumps(t.inputSchema, indent=2)}\n> APPROVE {t.name}? Y/N...")
+      if isapproved.lower() == "y":
+        hash = hash_tool(t.name, t.description, t.inputSchema)
+        allowed_tools[t.name] = hash
+        print(f"Approved: {t.name} - {hash}")
+    print("Total new Approved:\n", "\n-".join([f"{k} - {v}" for k,v in allowed_tools.items()]))
+    # UPDATE CONFIG
+    _config = {"allow": {}}
+    try:
+      with open(os.path.join(CWD, "config.json"), "r") as f:
+        _config = json.load(f)
+    except Exception as e:
+      print(F"Exception: {e}")
+    _config["allow"] = allowed_tools
+    with open(os.path.join(CWD, "config.json"), "w") as f:
+      print("Writing", _config)
+      json.dump(_config, f, indent=2)
+    
+  
+def hash_tool(name, desc, input_schema):
+    tohash:str = name + desc + json.dumps(input_schema, sort_keys=True)
+    return hashlib.sha256(tohash.encode()).hexdigest()
+  
 
 
 def tool_guard(tool_call: ChatCompletionMessageToolCallUnion, config: MCPRBACConfig):
   """ CLAUDE - "permissions": { "allow": [ "WebSearch", "WebFetch(domain:gofastmcp.com)" ] }
   """
-  tool_name_hash = hashlib.sha256(tool_call.function.name).hexdigest()
-  if tool_name_hash not in config.allowed_tools.keys():
-    return False
-    
-
-
-def domain_guard(tool_call: ChatCompletionMessageToolCallUnion, config: MCPRBACConfig):
-  """ CLAUDE - "permissions": { "allow": [ "WebSearch", "WebFetch(domain:gofastmcp.com)" ] }
-  """
-  if tool_call.function.name not in config.web_tools:
+  if tool_call.function.name in config.allowed_tools.keys():
     return True
-  return tool_guard(tool_call, config)
+  return False
 
 
 

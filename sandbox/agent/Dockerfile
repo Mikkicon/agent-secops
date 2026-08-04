@@ -28,6 +28,6 @@ EXPOSE 8080
 VOLUME /data
 
 ENTRYPOINT ["uv", "run"]
-CMD ["python", "-m", "main"]
+CMD ["python", "-m", "agent"]
 
 # cd sandbox/agent && docker run -p 8080:8080 -v "$(pwd)/unsafe-sandbox-data:/data" -t sandbox-agent

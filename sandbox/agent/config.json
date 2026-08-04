@@ -1,0 +1,6 @@
+{
+  "allow": {
+    "tavily_search": "6304dccf332bcbc9266d93990729d4137d16b2885204a3e0403c6fb0daafcb29",
+    "tavily_extract": "192e21dff48113eec371587b6854ed49aafaecb7d6f42275bc506352b4058576"
+  }
+}

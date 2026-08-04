@@ -12,7 +12,7 @@ from mcp.types import Tool
 from langfuse.openai import OpenAI
 from pydantic import BaseModel
 
-from sandbox.agent.security import MCPRBACConfig, domain_guard, tool_guard # imported lazily so the lib loads without the SDK
+from security import MCPRBACConfig, tool_guard
 
 
 load_dotenv()
@@ -25,7 +25,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 mcp_client = MCPClient(
     {
         "mcpServers": {
-            "local": {"url": "http://tools:8000/mcp"},
+            # "local": {"url": "http://tools:8000/mcp"}, TODO
             "tavily": {"url": f"https://mcp.tavily.com/mcp/?tavilyApiKey={TAVILY_API_KEY}"},
         }
     }
@@ -41,12 +41,10 @@ class Agent:
   sec_config: MCPRBACConfig = None
   call_config: AgentCallConfig = None
   
-  def __init__(self, tools: list[Tool], config = MCPRBACConfig(), call_config = AgentCallConfig()):
-    self.sec_config = config
-    _tools = [t.name for t in tools if t.name in self.sec_config.allowed_tools]
-    # TODO tools description hash approved/to-approve
-    print("\n-".join([t.name for t in _tools]))
-    self.tools = [{"type": "function", "function":  {"name": t.name, "description": t.description, "parameters": t.inputSchema}} for t in _tools]
+  def __init__(self, config = None, call_config = AgentCallConfig()):
+    print("Initial config: ", config)
+    self.sec_config = config or MCPRBACConfig.load_config()
+    print("Loaded config: ", self.sec_config)
     self._client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENAI_API_KEY)
     self.call_config = call_config
 
@@ -60,7 +58,7 @@ class Agent:
       choice = response.choices[0]
       messages.append(choice.message)
       if self.__should_break(response): break
-      messages = await self.__maybe_add_tool_call()
+      messages = await self.__maybe_add_tool_call(response, messages)
     return response
 
 
@@ -70,6 +68,18 @@ class Agent:
     )
     for event in response:
         print(event.choices[0].delta.content, end="", flush=True)
+
+
+  async def init(self):
+    async with mcp_client:
+      await mcp_client.ping()
+      tools = await mcp_client.list_tools()
+      print("\n-".join([t.name for t in tools]))
+      MCPRBACConfig.update_allowed_tools(self.sec_config, tools)
+      self.sec_config = MCPRBACConfig.load_config()
+    print("init - self.sec_config.allowed_tools", self.sec_config.allowed_tools)
+    allowed_tools = [t for t in tools if t.name in self.sec_config.allowed_tools ]
+    self.tools = [{"type": "function", "function":  {"name": t.name, "description": t.description, "parameters": t.inputSchema}} for t in allowed_tools]
 
 
   @staticmethod
@@ -101,12 +111,10 @@ class Agent:
     if not tool_guard(tool_call, self.sec_config): 
       return f"Tool {tool_call.function.name} is forbidden"
     
-    if not domain_guard(tool_call, self.sec_config): 
-      return f"Domain {tool_call.function.arguments} is forbidden"
-    
     args = json.loads(tool_call.function.arguments)
     tool_out = await mcp_client.call_tool(tool_call.function.name, args)
     print("TOOL CALL - ", tool_out)
+    return tool_out
 
 
   async def __bash(self, command: str):
@@ -124,18 +132,19 @@ async def get_agent():
   system_prompt = ""
   with open(prompt_path(), "r") as f:
     system_prompt = f.read()
-  async with mcp_client:
-    tools = await Agent.list_tools(mcp_client)
-    call_config = AgentCallConfig(system_prompt=system_prompt)
-    return Agent(tools=tools, call_config=call_config)
+  call_config = AgentCallConfig(system_prompt=system_prompt)
+  agent = Agent(call_config=call_config)
+  await agent.init()
+  return agent
 
 
 
 async def run():
     # out = await mcp_client.call_tool("local_read_file", {"path": "/data/messages.csv"})
     agent = await get_agent()
+    print("agent.tools", agent.tools)
     # print("TOOL CALL - ", out.content[0].text[:200])
-    # response = await agent.ainvoke(get_messages())
+    # response = await agent.ainvoke([{"role": "user", "content": "what is the weather today?"}])
     print("\n\nFINAL RESPONSE\n\n")
     # print(response)
 
