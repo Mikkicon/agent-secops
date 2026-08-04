@@ -1,6 +1,13 @@
 # Agent SecOps Harness
 
-And Testground for Security Breaches and Preventions
+
+1. Fully isolated Docker network
+2. Real secrets are [applied](https://github.com/Mikkicon/agent-secops/blob/main/sandbox/egress/interceptor.py#L24) on egress - they never enter agent & tools containers
+3. Egress proxy to monitor the canary secrets leak
+4. Tool [approval](https://github.com/Mikkicon/agent-secops/blob/main/sandbox/agent/security.py#L40) with hashing of: name + description + schema
+5. In this example User manually approves poisoned [weather tool](https://github.com/Mikkicon/agent-secops/blob/main/sandbox/tools/weather.py#L5)
+6. But thanks to 2 line of defence -> Isolation + Egress control - secrets never leave sandbox
+
 ```sh
 # 1. prereqs (host shell)
 export OPENAI_API_KEY=sk-or-...      # REAL keys — the proxy injects these
@@ -16,6 +23,7 @@ docker run --rm -it --network snbx --name agent \
   -e NO_PROXY=tools -e HTTPS_PROXY=http://proxy:8080 -e HTTP_PROXY=http://proxy:8080 \
   -e OPENAI_API_KEY=placeholder -e TAVILY_API_KEY=placeholder -e CANARY="$CANARY" \
   sandbox-agent
+
 #   → approve get_weather / read_file / tavily when prompted
 
 # 4. watch for the leak
@@ -30,10 +38,3 @@ docker logs -f proxy | grep -i canary
 docker rm -f proxy tools agent 2>/dev/null
 
 ```
-
-Three things that will bite in this exact run:
-- input() approval can't run detached — your nw.sh runs the agent with -d, which EOFErrors on the prompt. Run it with -it (step 3) until you seed allowed_tools.json.
-- The config path is CWD-relative — the code opens sandbox/agent/allowed_tools.json, which works from the repo root on the host but not inside the container (WORKDIR /app, files are flat). Change it to os.path.join(Path(__file__).parent, "allowed_tools.json") so it resolves in both, or approval silently reads/writes nothing.
-- Keys: real ones on the host (proxy injects), placeholders on the agent — as above.
-
-Once approval writes allowed_tools.json with get_weather/read_file/tavily, re-runs can go back to -d. Fix the path first — otherwise step 3 will loop right back to agent.tools [].

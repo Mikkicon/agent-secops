@@ -17,6 +17,7 @@ def request(flow: http.HTTPFlow) -> None:
   blob = r.pretty_url + "\n".join(f"{k}:{v}" for k,v in r.headers.items()) + (r.get_text() or "")
   if CANARY in blob:
     logging.error("🚨 CANARY LEAK -> %s", r.pretty_host)
+    flow.response = http.Response.make(403, b"secrets leak")
   if r.pretty_host not in ALLOW:
     flow.response = http.Response.make(403, b"blocked")
   # real secrets
