@@ -8,6 +8,41 @@
 5. In this example User manually approves poisoned [weather tool](https://github.com/Mikkicon/agent-secops/blob/main/sandbox/tools/weather.py#L5)
 6. But thanks to 2 line of defence -> Isolation + Egress control - secrets never leave sandbox
 
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph host["Host (pentest/)"]
+    nw["docker-internal-nw.sh<br/>build · gen CA · run"]
+    gen["gen-sec.sh<br/>plants canary"]
+  end
+
+  subgraph snbx["snbx network — internal, no route out"]
+    agent["agent<br/>LLM loop · placeholder keys"]
+    tools["tools<br/>FastMCP :8000<br/>read_file · poisoned get_weather"]
+    data[("/data/.env<br/>MY_SECRET = canary")]
+    proxy["proxy / egress-guard<br/>mitmdump + interceptor.py<br/>injects real keys · scans canary · allowlist"]
+  end
+
+  subgraph egr["egress network → internet"]
+    or["openrouter.ai<br/>LLM"]
+    tav["mcp.tavily.com<br/>search"]
+  end
+
+  gen -. plants .-> data
+  tools --- data
+  agent -->|"1 · read_file /data/.env (direct, NO_PROXY)"| tools
+  agent -->|"2 · LLM call carries canary (HTTPS via proxy)"| proxy
+  proxy -->|"inject real key · scan"| or
+  proxy -->|"inject real key · scan"| tav
+  proxy -. "3 · 🚨 CANARY LEAK" .-> nw
+
+  classDef guard fill:#2563eb,color:#fff,stroke:#1e3a8a,stroke-width:1px;
+  class proxy guard
+```
+
+Only the **proxy** is dual-homed (`snbx` + `egress`), so it's the single route out; everything else on `snbx` has no internet. The agent talks to `tools` directly (`NO_PROXY`), but every external call is forced through the proxy, which injects the real keys and scans for the canary.
+
 ```sh
 # 1. prereqs (host shell)
 export OPENAI_API_KEY=sk-or-...      # REAL keys — the proxy injects these
