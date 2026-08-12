@@ -5,3 +5,4 @@ agent.egg-info
 __pycache__
 data
 unsafe-sandbox-data
+mitmproxy-*.*
