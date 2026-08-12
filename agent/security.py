@@ -27,7 +27,6 @@ class MCPRBACConfig(BaseModel):
         cfg = json.load(f)
         allowed_tools = cfg.get("allow", {})
         print("Loaded Config:", allowed_tools.keys())
-        print("load_config - allowed_tools", allowed_tools.keys())
     except Exception as e:
       print("Exception", e)
     return MCPRBACConfig(allowed_tools=allowed_tools)
@@ -70,10 +69,10 @@ def hash_tool(name, desc, input_schema):
   
 
 
-def tool_guard(tool_call: ChatCompletionMessageToolCallUnion, config: MCPRBACConfig):
+def tool_guard(tool_name: str, config: MCPRBACConfig):
   """ CLAUDE - "permissions": { "allow": [ "WebSearch", "WebFetch(domain:gofastmcp.com)" ] }
   """
-  if tool_call.function.name in config.allowed_tools.keys():
+  if tool_name in config.allowed_tools.keys():
     return True
   return False
 

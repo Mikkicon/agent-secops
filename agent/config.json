@@ -1,0 +1,7 @@
+{
+  "allow": {
+    "tavily_search": "6304dccf332bcbc9266d93990729d4137d16b2885204a3e0403c6fb0daafcb29",
+    "tavily_tavily_search": "54864b8be6e22815341271629b2395ccc962b78ee95ccc365e93c3c72bd2fbdf",
+    "localhost_read_file": "a37e0b8249365ae1a42d40791893e41c75b14e78ac26faa6cd8660e785f0a8d5"
+  }
+}

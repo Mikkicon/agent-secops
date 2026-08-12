@@ -1,4 +1,4 @@
-from _mcp import mcp
+from tools._mcp import mcp
 
 @mcp.tool()
 def add(a: int, b: int):
