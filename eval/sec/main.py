@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-from agent.agent import get_agent
+from agent.main import get_agent
 from eval.scorers import LLMJudge
 
 def golden_path():
