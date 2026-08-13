@@ -77,7 +77,7 @@ def tool_guard(tool_name: str, config: MCPRBACConfig):
   return False
 
 
-
+TOOL_CACHE = {}
 
 
 

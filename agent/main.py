@@ -4,15 +4,17 @@ import os
 from pathlib import Path
 from typing import Any
 from dotenv import load_dotenv
+import langfuse
 from openai.types.chat import ChatCompletion, ChatCompletionMessageToolCallUnion
 from fastmcp.client import Client as MCPClient
 from fastmcp.client.transports import StreamableHttpTransport
 from mcp.types import Tool
 # from openai import OpenAI
 from langfuse.openai import OpenAI
+from langfuse import observe
 from pydantic import BaseModel
 
-from security import MCPRBACConfig, tool_guard
+from .security import TOOL_CACHE, MCPRBACConfig, tool_guard
 
 
 load_dotenv()
@@ -20,12 +22,13 @@ load_dotenv()
 MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
+CWD = Path(__file__).resolve().parent
 
 mcp_client = MCPClient(
     {
         "mcpServers": {
-            "local": {"url": "http://tools:8000/mcp"},
+            # "local": {"url": "http://tools:8000/mcp"},
+            "localhost": {"url": "http://localhost:8000/mcp"},
             "tavily": {"url": f"https://mcp.tavily.com/mcp/?tavilyApiKey={TAVILY_API_KEY}"},
         }
     }
@@ -41,22 +44,22 @@ class Agent:
   sec_config: MCPRBACConfig = None
   call_config: AgentCallConfig = None
   
-  def __init__(self, config = None, call_config = AgentCallConfig()):
+  def __init__(self, config = None, api_key=OPENAI_API_KEY, call_config = AgentCallConfig()):
     print("Initial config: ", config)
     self.sec_config = config or MCPRBACConfig.load_config()
     print("Loaded config: ", self.sec_config)
     self._client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENAI_API_KEY)
     self.call_config = call_config
 
-  
-  async def ainvoke(self, _messages) -> ChatCompletion:
-    unfinished = True
+  @observe(name="Invoke")
+  async def ainvoke(self, _messages: list[dict]=[]) -> ChatCompletion:
+    i, max_iter = 0, 6
     messages = [{"role": "system", "content": self.call_config.system_prompt}, *_messages]
-    while unfinished:
+    while i < max_iter:
       response = await self.__create(messages)
       print(response)
       choice = response.choices[0]
-      messages.append(choice.message)
+      messages.append(choice.message.model_dump())
       if self.__should_break(response): break
       messages = await self.__maybe_add_tool_call(response, messages)
     return response
@@ -72,13 +75,13 @@ class Agent:
 
   async def init(self):
     async with mcp_client:
-      await mcp_client.ping()
       tools = await mcp_client.list_tools()
       print("\n-".join([t.name for t in tools]))
-      MCPRBACConfig.update_allowed_tools(self.sec_config, tools)
+      if not os.environ.get("SKIP_TOOLS_APPROVAL", True):
+        MCPRBACConfig.update_allowed_tools(self.sec_config, tools)
       self.sec_config = MCPRBACConfig.load_config()
-    print("init - self.sec_config.allowed_tools", self.sec_config.allowed_tools)
     allowed_tools = [t for t in tools if t.name in self.sec_config.allowed_tools ]
+    print("init - allowed_tools", [t.name for t in allowed_tools])
     self.tools = [{"type": "function", "function":  {"name": t.name, "description": t.description, "parameters": t.inputSchema}} for t in allowed_tools]
 
 
@@ -91,7 +94,15 @@ class Agent:
 
 
   async def __create(self, messages) -> ChatCompletion:
-    return self._client.chat.completions.create(model=MODEL, messages=messages, n=1, tools=self.tools)
+    max_retries = 3
+    # ChatCompletion(id=None, choices=None, created=None, model=None, object=None, moderation=None, service_tier=None, system_fingerprint=None, usage=None, error={'message': 'error code: 524\n', 'code': 504})
+    for i in range(max_retries):
+      result =  self._client.chat.completions.create(model=MODEL, messages=messages, n=1, tools=self.tools)
+      if hasattr(result, "error"):
+        continue
+      else:
+        break
+    return result
 
 
   def __should_break(self, response: ChatCompletion):
@@ -102,19 +113,28 @@ class Agent:
     choice = response.choices[0]
     if choice.finish_reason == "tool_calls":
       for tool_call in choice.message.tool_calls or []:
-        tool_out = await self.__call_tool(tool_call)
-        messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_out.content[0].text})
+        tool_out = await self.__call_tool(tool_call.function.name, tool_call.function.arguments)
+        print("tool_out", tool_out)
+        messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": tool_out})
     return messages
   
-  
-  async def __call_tool(self, tool_call: ChatCompletionMessageToolCallUnion):
-    if not tool_guard(tool_call, self.sec_config): 
-      return f"Tool {tool_call.function.name} is forbidden"
-    
-    args = json.loads(tool_call.function.arguments)
-    tool_out = await mcp_client.call_tool(tool_call.function.name, args)
+  @observe(name="call_tool", as_type="tool", capture_input=True, capture_output=True)
+  async def __call_tool(self, name: str, args: str):
+    if not tool_guard(name, self.sec_config): 
+      valid = ", ".join(self.sec_config.allowed_tools)
+      return f"Tool '{name}' is not available. Valid tools: {valid}"
+    args_json = json.loads(args)
+    cache_key = (name, args)
+    if cache_key in TOOL_CACHE:
+      tool_out = TOOL_CACHE[cache_key]
+    else:
+      try:
+        tool_out = await mcp_client.call_tool(name, args_json)
+      except Exception as e:
+        tool_out = f"ERROR calling tool: {str(e)}"
+      TOOL_CACHE[cache_key] = tool_out
     print("TOOL CALL - ", tool_out)
-    return tool_out
+    return tool_out.content[0].text if tool_out.content else ""
 
 
   async def __bash(self, command: str):
@@ -123,17 +143,14 @@ class Agent:
       return 
 
 
-def prompt_path():
-  CWD = Path(__file__).resolve().parent
-  return os.path.join(CWD, "prompts", "sys-linkedin-inbox-v1.md")
-
-
-async def get_agent():
+async def get_agent(**kwargs) -> Agent:
   system_prompt = ""
-  with open(prompt_path(), "r") as f:
-    system_prompt = f.read()
-  call_config = AgentCallConfig(system_prompt=system_prompt)
-  agent = Agent(call_config=call_config)
+  with open(os.path.join(CWD, "prompts", "sys-linkedin-inbox-v1.md"), "r") as f:
+    system_prompt = "\n".join(f.readlines()[:10])
+  with open(os.path.join(CWD, "..", "data", "resume-2024.txt"), "r") as f:
+    resume = f.read()
+  call_config = AgentCallConfig(system_prompt=system_prompt+resume)
+  agent = Agent(call_config=call_config, **kwargs)
   await agent.init()
   return agent
 
@@ -155,4 +172,4 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 
-# uv run agent.py
+# uv run sandbox/agent/agent.py

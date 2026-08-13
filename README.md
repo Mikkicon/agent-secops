@@ -43,10 +43,20 @@ flowchart LR
 
 Only the **proxy** is dual-homed (`snbx` + `egress`), so it's the single route out; everything else on `snbx` has no internet. The agent talks to `tools` directly (`NO_PROXY`), but every external call is forced through the proxy, which injects the real keys and scans for the canary.
 
+Once
 ```sh
-# 1. prereqs (host shell)
+docker compose -f ~/lib/langfuse/docker-compose.yml up -d
+
+docker network connect --alias langfuse egress langfuse-langfuse-web-1
+
 export OPENAI_API_KEY=sk-or-...      # REAL keys — the proxy injects these
 export TAVILY_API_KEY=tvly-...
+
+```
+
+
+```sh
+# 1. prereqs (host shell)
 source pentest/gen-sec.sh            # sets $CANARY + plants /data/.env
 
 # 2. build + start proxy + tools (your nw.sh does CA→builds→proxy→tools)
@@ -74,6 +84,8 @@ docker rm -f proxy tools agent 2>/dev/null
 
 ```
 
+Gaps:
+- Canary scan is plaintext-only — trivial encoding bypass, weakens the containment claim.
 
 ## Covered
 - MCP Tool Poisoning — get_weather; add variants that hide the instruction in a schema field description/enum/default instead of the tool description.

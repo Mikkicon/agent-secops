@@ -8,6 +8,10 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+# from openai import OpenAI       # imported lazily so the lib loads without the SDK
+from langfuse.openai import OpenAI
+from pydantic import BaseModel
+from openai.types.chat import ChatCompletion
 
 
 MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
@@ -80,6 +84,7 @@ def register(name: str) -> Callable[[type[Scorer]], type[Scorer]]:
 class LLMJudge(Scorer):
     version = "1.0"
     threshold = 0.5
+    client: OpenAI = None,
 
     def __init__(
         self,
@@ -87,20 +92,22 @@ class LLMJudge(Scorer):
         *,
         model: str = MODEL,
         prompt_template: str = DEFAULT_JUDGE_PROMPT,
+        response_format: BaseModel = None,
+        call_config: BaseModel = None,
         max_attempts: int = 1,
         threshold: float = 0.5,
     ):
         self._client = client                 # inject in tests; lazy-build real client otherwise
         self.model = model
         self.prompt_template = prompt_template
+        self.response_format = response_format
+        self.call_config = call_config
         self.max_attempts = max_attempts
         self.threshold = threshold
 
     @property
-    def client(self) -> Any:
+    def client(self) -> OpenAI:
         if self._client is None:
-            # from openai import OpenAI       # imported lazily so the lib loads without the SDK
-            from langfuse.openai import OpenAI
             self._client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENAI_API_KEY)
         return self._client
 
@@ -120,10 +127,12 @@ class LLMJudge(Scorer):
         raise RuntimeError(f"llm_judge failed after {self.max_attempts} attempts: {last_err}")
 
     def _call(self, prompt: str) -> str:
-        resp = self.client.chat.completions.create(
+        resp: ChatCompletion = self.client.chat.completions.create(
             model=self.model,
             temperature=0,                        # deterministic judging
             messages=[{"role": "user", "content": prompt}],
+            response_format=self.response_format,
+            **(self.call_config.model_dump(exclude_unset=True) if self.call_config else {})
         )
         return resp.choices[0].message.content
 
