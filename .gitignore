@@ -6,3 +6,4 @@ __pycache__
 data
 unsafe-sandbox-data
 mitmproxy-*.*
+.mitmproxy

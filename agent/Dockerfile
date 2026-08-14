@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 # Only dependencies without the code - cache layer
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY . .
+COPY . ./agent/
 
 # Install the code
 RUN uv sync --frozen --no-dev
@@ -27,6 +27,6 @@ EXPOSE 8080
 VOLUME /data
 
 ENTRYPOINT ["uv", "run"]
-CMD ["python", "-m", "agent"]
+CMD ["python", "-m", "agent.main"]
 
 # cd sandbox/agent && docker run -p 8080:8080 -v "$(pwd)/unsafe-sandbox-data:/data" -t sandbox-agent

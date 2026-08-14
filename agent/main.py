@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -14,7 +15,7 @@ from langfuse.openai import OpenAI
 from langfuse import observe
 from pydantic import BaseModel
 
-from .security import TOOL_CACHE, MCPRBACConfig, tool_guard
+from agent.security import TOOL_CACHE, MCPRBACConfig, tool_guard
 
 
 load_dotenv()
@@ -23,12 +24,12 @@ MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 CWD = Path(__file__).resolve().parent
+TOOLS_URL = os.environ.get("TOOLS_URL", "http://localhost:8000/mcp")
 
 mcp_client = MCPClient(
     {
         "mcpServers": {
-            # "local": {"url": "http://tools:8000/mcp"},
-            "localhost": {"url": "http://localhost:8000/mcp"},
+            "local":  {"url": TOOLS_URL},
             "tavily": {"url": f"https://mcp.tavily.com/mcp/?tavilyApiKey={TAVILY_API_KEY}"},
         }
     }
@@ -77,7 +78,7 @@ class Agent:
     async with mcp_client:
       tools = await mcp_client.list_tools()
       print("\n-".join([t.name for t in tools]))
-      if not os.environ.get("SKIP_TOOLS_APPROVAL", True):
+      if os.environ.get("SKIP_TOOLS_APPROVAL", "true").lower() != "true":
         MCPRBACConfig.update_allowed_tools(self.sec_config, tools)
       self.sec_config = MCPRBACConfig.load_config()
     allowed_tools = [t for t in tools if t.name in self.sec_config.allowed_tools ]
@@ -155,21 +156,23 @@ async def get_agent(**kwargs) -> Agent:
   return agent
 
 
+def parse_args():
+    p = argparse.ArgumentParser(prog="agent")
+    p.add_argument("prompt", nargs="?", default="what is the weather today?",
+                   help="user message to send")
+    # p.add_argument("-m", "--model", default=MODEL)
+    return p.parse_args()
 
-async def run():
-    # out = await mcp_client.call_tool("local_read_file", {"path": "/data/messages.csv"})
+
+async def run(args):
     agent = await get_agent()
-    print("agent.tools", agent.tools)
-    # print("TOOL CALL - ", out.content[0].text[:200])
     async with mcp_client:
-      response = await agent.ainvoke([{"role": "user", "content": "what is the weather today?"}])
-    print("\n\nFINAL RESPONSE\n\n")
-    print(response)
+      response = await agent.ainvoke([{"role": "user", "content": args.prompt}])
 
 async def main():
-  await run()
+  await run(parse_args())
 
 if __name__ == "__main__":
     asyncio.run(main())
 
-# uv run sandbox/agent/agent.py
+# uv run agent/agent.py

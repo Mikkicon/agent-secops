@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 # Only dependencies without the code - cache layer
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY . .
+COPY . ./tools/
 
 # Install the code
 RUN uv sync --frozen --no-dev
@@ -27,6 +27,6 @@ EXPOSE 8000
 VOLUME /data
 
 ENTRYPOINT ["uv", "run"]
-CMD ["python", "-m", "main"]
+CMD ["python", "-m", "tools.main"]
 
 # cd sandbox/tools && docker run -p 8000:8000 -v "$(pwd)/unsafe-sandbox-data:/data" -t sandbox-tools

@@ -1,0 +1,76 @@
+services:
+  egress:
+    build:
+      context: ./sandbox/egress
+    image: sandbox-egress
+    container_name: proxy
+    restart: "no"
+    networks:
+      - snbx
+      - egress
+      - langfuse_default
+    environment:
+      CANARY: ${CANARY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+    volumes:
+      - ./pentest/.mitmproxy:/root/.mitmproxy
+      - ./sandbox/egress/interceptor.py:/app/interceptor.py
+
+  tools:
+    build:
+      context: ./tools
+    image: sandbox-tools
+    container_name: tools
+    depends_on:
+      - egress
+    networks:
+      - snbx
+    environment:
+      CANARY: ${CANARY}
+      MCP_HOST: 0.0.0.0
+      HTTPS_PROXY: http://proxy:8080
+      HTTP_PROXY: http://proxy:8080
+    volumes:
+      - ./sandbox/unsafe-sandbox-data:/app/data
+    tty: true
+
+  agent:
+    entrypoint: ["sleep", "infinity"]
+    build:
+      context: ./agent
+    image: sandbox-agent
+    container_name: agent
+    depends_on:
+      - egress
+      - tools
+    networks:
+      - snbx
+    environment:
+      CANARY: ${CANARY}
+      NO_PROXY: tools
+      HTTPS_PROXY: http://proxy:8080
+      HTTP_PROXY: http://proxy:8080
+      OPENAI_API_KEY: placeholder
+      TAVILY_API_KEY: placeholder
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: pk-lf-placeholder
+      LANGFUSE_SECRET_KEY: sk-lf-placeholder
+      SKIP_TOOLS_APPROVAL: "false"
+      TOOLS_URL: http://tools:8000/mcp
+    volumes:
+      - ./sandbox/unsafe-sandbox-data:/app/data
+    tty: true
+
+networks:
+  # Internal-only network: agent/tools/proxy can communicate, but no Internet
+  snbx:
+    internal: true
+  
+  langfuse_default:
+    external: true
+
+  # Only the egress/proxy container is attached here.
+  egress:
